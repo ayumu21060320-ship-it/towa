@@ -30,7 +30,7 @@ public class HeartGame : MonoBehaviour
     Font font;
     Transform canvas;
     GameObject screen; // 今の画面。画面を切り替えるときに丸ごと消す
-    Sprite sqSprite, circleSprite, heartSprite, lifeSprite, dotSprite, flipSprite, blobSprite, megaSprite, starSprite, frameSprite, concreteSprite, pixelHeartSprite, crackSprite, ecgSprite;
+    Sprite sqSprite, circleSprite, heartSprite, lifeSprite, dotSprite, flipSprite, blobSprite, megaSprite, starSprite, frameSprite, ningenSprite, concreteSprite, pixelHeartSprite, crackSprite, ecgSprite;
     RawImage noiseImg; // 古いモニターのざらつき
     float shake;       // 被弾したときの画面のゆれ
     readonly Dictionary<string, Sprite> images = new Dictionary<string, Sprite>();
@@ -419,10 +419,12 @@ public class HeartGame : MonoBehaviour
             if (imgKey == null) return (null, null);
             float x = imgKey == "shiro" ? -560 : imgKey == "kuro" ? 560 : 0;
             var sp = LoadImage(swapped ? imgKey + "_true" : imgKey) ?? LoadImage(imgKey);
-            var img = Img(root, new Vector2(x, 60), sp != null ? new Vector2(520, 620) : new Vector2(380, 380), Color.white, sp ?? circleSprite, "Portrait");
+            bool silhouette = sp == null && imgKey == "ningen";
+            var size = sp != null ? new Vector2(520, 620) : silhouette ? new Vector2(360, 540) : new Vector2(380, 380);
+            var img = Img(root, new Vector2(x, silhouette ? 20 : 60), size, Color.white, sp ?? (silhouette ? ningenSprite : circleSprite), "Portrait");
             img.preserveAspect = true;
             Text label = null;
-            if (sp == null)
+            if (sp == null && !silhouette)
             {
                 bool dark = (imgKey == "shiro") != swapped || imgKey == "ningen";
                 img.color = imgKey == "ningen" ? Gray : dark ? Black : White;
@@ -1095,10 +1097,79 @@ public class HeartGame : MonoBehaviour
         frameSprite = Shape(64, (u, v) => Mathf.Max(Mathf.Abs(u), Mathf.Abs(v)) > 0.8f ? w : clear);
 
         concreteSprite = MakeConcrete();
+        ningenSprite = MakeNingen();
         pixelHeartSprite = PixelHeart(true);
         lifeSprite = PixelHeart(false);
         crackSprite = MakeCrack();
         ecgSprite = MakeEcg();
+    }
+
+    // 人間さんの仮の立ち絵: 制服（黒い上着・白いシャツ・ネクタイ）の上半身のシルエット
+    // u は左右 -1..1、v は上下 -1.5..1.5（上が +）
+    static readonly Vector2[][] HairTufts =
+    {
+        new[] { new Vector2(0.18f, 0.64f), new Vector2(0.36f, 0.6f), new Vector2(0.4f, 0.36f) },    // 横の房
+        new[] { new Vector2(0.26f, 0.8f), new Vector2(0.36f, 0.62f), new Vector2(0.44f, 0.58f) },   // 外にはねる房
+        new[] { new Vector2(0.05f, 0.98f), new Vector2(0.22f, 0.92f), new Vector2(0.3f, 1.08f) },   // 上のはね
+        new[] { new Vector2(-0.05f, 0.95f), new Vector2(0.1f, 0.98f), new Vector2(-0.02f, 1.1f) },  // てっぺん
+    };
+
+    static bool InEllipse(float u, float v, float cx, float cy, float rx, float ry)
+        => (u - cx) * (u - cx) / (rx * rx) + (v - cy) * (v - cy) / (ry * ry) <= 1;
+
+    static bool InNingen(float u, float v)
+    {
+        float au = Mathf.Abs(u);
+        if (InEllipse(u, v, 0, 0.58f, 0.28f, 0.34f)) return true;              // 頭
+        if (v > 0.5f && InEllipse(u, v, 0, 0.7f, 0.355f, 0.33f)) return true;  // 髪
+        foreach (var t in HairTufts)
+            if (InPoly(t, au, v) || InPoly(t, u, v)) return true;
+        if (au < 0.12f && v > 0.12f && v < 0.32f) return true;                 // 首
+        if (v <= 0.2f)
+        {
+            if (au <= 0.42f && v <= 0.16f) return true;
+            if (InEllipse(au, v, 0.42f, -0.12f, 0.4f, 0.32f)) return true;    // 肩
+            if (v < -0.12f && au <= 0.82f - 0.06f * (-0.12f - v)) return true;
+        }
+        return false;
+    }
+
+    static Sprite MakeNingen()
+    {
+        const int W = 256, H = 384;
+        const float t = 0.035f, d = t * 0.7f;
+        var offs = new[] { new Vector2(t, 0), new Vector2(-t, 0), new Vector2(0, t), new Vector2(0, -t), new Vector2(d, d), new Vector2(-d, d), new Vector2(d, -d), new Vector2(-d, -d) };
+        Color rim = new Color(0.6f, 0.6f, 0.6f), coat = new Color(0.12f, 0.12f, 0.12f), shirt = new Color(0.85f, 0.85f, 0.85f),
+              tie = new Color(0.07f, 0.07f, 0.07f), lapel = new Color(0.35f, 0.35f, 0.35f);
+        Func<float, float, Color> f = (u, v) =>
+        {
+            if (!InNingen(u, v)) return Color.clear;
+            foreach (var o in offs) if (!InNingen(u + o.x, v + o.y)) return rim;
+            float au = Mathf.Abs(u), lap = 0.17f * (v + 0.4f) / 0.57f;
+            if (v > -0.4f && v < 0.17f && au < lap)
+                return au < 0.045f + 0.03f * (0.1f - v) && v < 0.1f ? tie : shirt;
+            if (v > -0.45f && v < 0.17f && au < lap + 0.03f) return lapel;
+            return coat;
+        };
+        var tex = new Texture2D(W, H, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[W * H];
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                Color sum = Color.clear;
+                for (int sy = 0; sy < 2; sy++)
+                    for (int sx = 0; sx < 2; sx++)
+                    {
+                        float u = (x + (sx + 0.5f) / 2) / W * 2 - 1, v = ((y + (sy + 0.5f) / 2) / H * 2 - 1) * 1.5f;
+                        var c = f(u, v);
+                        sum += new Color(c.r * c.a, c.g * c.a, c.b * c.a, c.a);
+                    }
+                sum /= 4;
+                px[y * W + x] = sum.a > 0 ? new Color(sum.r / sum.a, sum.g / sum.a, sum.b / sum.a, sum.a) : Color.clear;
+            }
+        tex.SetPixels(px);
+        tex.Apply();
+        return Sprite.Create(tex, new UnityEngine.Rect(0, 0, W, H), new Vector2(0.5f, 0.5f), 100);
     }
 
     // ドットのハート（企画書のロゴのような、左が白・右が黒のハート）
