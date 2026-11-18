@@ -30,7 +30,7 @@ public class HeartGame : MonoBehaviour
     Font font;
     Transform canvas;
     GameObject screen; // 今の画面。画面を切り替えるときに丸ごと消す
-    Sprite sqSprite, circleSprite, heartSprite, lifeSprite, dotSprite, flipSprite, blobSprite, megaSprite, starSprite, frameSprite, ningenSprite, concreteSprite, pixelHeartSprite, crackSprite, ecgSprite;
+    Sprite sqSprite, circleSprite, heartSprite, lifeSprite, dotSprite, flipSprite, blobSprite, megaSprite, starSprite, frameSprite, ningenSprite, shiroSprite, shiroTrueSprite, kuroSprite, kuroTrueSprite, concreteSprite, pixelHeartSprite, crackSprite, ecgSprite;
     RawImage noiseImg; // 古いモニターのざらつき
     float shake;       // 被弾したときの画面のゆれ
     readonly Dictionary<string, Sprite> images = new Dictionary<string, Sprite>();
@@ -419,18 +419,14 @@ public class HeartGame : MonoBehaviour
             if (imgKey == null) return (null, null);
             float x = imgKey == "shiro" ? -560 : imgKey == "kuro" ? 560 : 0;
             var sp = LoadImage(swapped ? imgKey + "_true" : imgKey) ?? LoadImage(imgKey);
-            bool silhouette = sp == null && imgKey == "ningen";
-            var size = sp != null ? new Vector2(520, 620) : silhouette ? new Vector2(360, 540) : new Vector2(380, 380);
-            var img = Img(root, new Vector2(x, silhouette ? 20 : 60), size, Color.white, sp ?? (silhouette ? ningenSprite : circleSprite), "Portrait");
+            // 絵が無いときは仮のシルエット（シロとクロは、決意エンドの後は本来の色）
+            var fallback = imgKey == "ningen" ? ningenSprite
+                         : imgKey == "shiro" ? (swapped ? shiroTrueSprite : shiroSprite)
+                         : (swapped ? kuroTrueSprite : kuroSprite);
+            var size = sp != null ? new Vector2(520, 620) : imgKey == "ningen" ? new Vector2(360, 540) : new Vector2(420, 420);
+            var img = Img(root, new Vector2(x, imgKey == "ningen" && sp == null ? 20 : 60), size, Color.white, sp ?? fallback, "Portrait");
             img.preserveAspect = true;
             Text label = null;
-            if (sp == null && !silhouette)
-            {
-                bool dark = (imgKey == "shiro") != swapped || imgKey == "ningen";
-                img.color = imgKey == "ningen" ? Gray : dark ? Black : White;
-                Outlined(img, dark ? White : Black, 3);
-                label = Txt(img.transform, Vector2.zero, new Vector2(360, 120), who, 56, dark ? White : Black);
-            }
             img.transform.SetSiblingIndex(2);
             p = (img, label);
             portraits[who] = p;
@@ -634,14 +630,8 @@ public class HeartGame : MonoBehaviour
     Text CharacterBox(Transform root, Vector2 pos, string who, string key, bool dark, string line)
     {
         var sp = LoadImage(key);
-        var img = Img(root, pos + new Vector2(0, 120), new Vector2(200, 200), Color.white, sp ?? circleSprite, who);
+        var img = Img(root, pos + new Vector2(0, 120), new Vector2(210, 210), Color.white, sp ?? (key == "shiro" ? shiroSprite : kuroSprite), who);
         img.preserveAspect = true;
-        if (sp == null)
-        {
-            img.color = dark ? Black : White;
-            Outlined(img, dark ? White : Black, 3);
-            Txt(img.transform, Vector2.zero, new Vector2(200, 80), who, 44, dark ? White : Black);
-        }
         var bubble = Img(root, pos + new Vector2(0, -90), new Vector2(380, 190), new Color(0.92f, 0.92f, 0.92f, 0.95f), null, "Bubble");
         return Txt(bubble.transform, Vector2.zero, new Vector2(350, 170), line, 26, Black, TextAnchor.MiddleLeft);
     }
@@ -1098,6 +1088,13 @@ public class HeartGame : MonoBehaviour
 
         concreteSprite = MakeConcrete();
         ningenSprite = MakeNingen();
+        // シロ（本音）は黒い犬、クロ（建前）は白い狐。本来の姿では色が逆になる
+        Color dark = new Color(0.12f, 0.12f, 0.12f), light = new Color(0.9f, 0.9f, 0.9f);
+        Color rimOnDark = new Color(0.6f, 0.6f, 0.6f), rimOnLight = new Color(0.35f, 0.35f, 0.35f);
+        shiroSprite = MakeCreature(InDog, DogDetail, dark, rimOnDark, light);
+        shiroTrueSprite = MakeCreature(InDog, DogDetail, light, rimOnLight, dark);
+        kuroSprite = MakeCreature(InFox, FoxDetail, light, rimOnLight, dark);
+        kuroTrueSprite = MakeCreature(InFox, FoxDetail, dark, rimOnDark, light);
         pixelHeartSprite = PixelHeart(true);
         lifeSprite = PixelHeart(false);
         crackSprite = MakeCrack();
@@ -1170,6 +1167,90 @@ public class HeartGame : MonoBehaviour
         tex.SetPixels(px);
         tex.Apply();
         return Sprite.Create(tex, new UnityEngine.Rect(0, 0, W, H), new Vector2(0.5f, 0.5f), 100);
+    }
+
+    // ---- シロ（犬）とクロ（狐）の仮の絵。u, v は -1..1（上が +）----
+    // ふちをでこぼこにできる楕円（bump = でこぼこの大きさ、k = でこぼこの数）
+    static bool InBlob(float u, float v, float cx, float cy, float rx, float ry, float bump = 0, int k = 9)
+    {
+        float dx = (u - cx) / rx, dy = (v - cy) / ry;
+        float r = Mathf.Sqrt(dx * dx + dy * dy);
+        return r <= 1 + bump * Mathf.Abs(Mathf.Sin(Mathf.Atan2(dy, dx) * k));
+    }
+
+    static bool InDog(float u, float v)
+    {
+        float au = Mathf.Abs(u);
+        return InBlob(u, v, 0, 0.36f, 0.4f, 0.36f, 0.05f)                    // もこもこの頭
+            || InBlob(au, v, 0.4f, 0.18f, 0.16f, 0.3f, 0.08f, 7)             // たれ耳
+            || (v > -0.92f && InBlob(u, v, 0, -0.45f, 0.46f, 0.48f, 0.04f))  // おすわりの体
+            || InBlob(au, v, 0.18f, -0.86f, 0.15f, 0.1f);                   // 前足
+    }
+
+    static bool DogDetail(float u, float v)
+    {
+        float au = Mathf.Abs(u);
+        return InBlob(au, v, 0.15f, 0.38f, 0.06f, 0.07f)                    // 目
+            || InBlob(u, v, 0, 0.22f, 0.08f, 0.055f)                         // 鼻
+            || (au < 0.26f && Mathf.Abs(v - (-0.02f - 0.25f * u * u)) < 0.03f) // 首輪
+            || InBlob(u, v, 0, -0.12f, 0.05f, 0.05f);                        // 首輪の飾り
+    }
+
+    static readonly Vector2[] FoxEar = { new Vector2(0.1f, 0.55f), new Vector2(0.34f, 0.48f), new Vector2(0.3f, 0.95f) };
+    static readonly Vector2[] FoxInnerEar = { new Vector2(0.13f, 0.62f), new Vector2(0.27f, 0.57f), new Vector2(0.26f, 0.82f) };
+    static readonly Vector2[] FoxCheek = { new Vector2(0.22f, 0.36f), new Vector2(0.22f, 0.1f), new Vector2(0.5f, 0.16f) };
+    static readonly Vector2[] FoxBow = { new Vector2(0, 0.01f), new Vector2(0.27f, 0.16f), new Vector2(0.27f, -0.13f) };
+
+    static bool InFox(float u, float v)
+    {
+        float au = Mathf.Abs(u);
+        // しっぽ（右下、少しかたむけた楕円）
+        float tx = u - 0.48f, ty = v + 0.5f, c = Mathf.Cos(-0.5f), sn = Mathf.Sin(-0.5f);
+        float rx = tx * c - ty * sn, ry = tx * sn + ty * c;
+        return InBlob(u, v, 0, 0.33f, 0.34f, 0.28f)                          // 頭
+            || InBlob(u, v, 0, 0.02f, 0.22f, 0.14f)                          // 首
+            || InPoly(FoxEar, au, v) || InPoly(FoxCheek, au, v)              // とがった耳・ほおの毛
+            || (v > -0.92f && InBlob(u, v, -0.06f, -0.45f, 0.36f, 0.5f))     // 体
+            || InBlob(rx, ry, 0, 0, 0.24f, 0.46f, 0.06f, 8)                  // ふさふさのしっぽ
+            || InBlob(u, v, -0.22f, -0.87f, 0.12f, 0.09f) || InBlob(u, v, 0.08f, -0.87f, 0.12f, 0.09f); // 前足
+    }
+
+    static bool FoxDetail(float u, float v)
+    {
+        float au = Mathf.Abs(u);
+        return InBlob(au, v, 0.13f, 0.34f, 0.05f, 0.065f)                   // 目
+            || InBlob(u, v, 0, 0.2f, 0.05f, 0.04f)                           // 鼻
+            || InPoly(FoxBow, au, v)                                         // リボン
+            || InPoly(FoxInnerEar, au, v);                                   // 耳の中
+    }
+
+    // 形（inside）と模様（detail）から絵を作る。ふちは rim の色
+    static Sprite MakeCreature(Func<float, float, bool> inside, Func<float, float, bool> detail, Color fill, Color rim, Color det)
+    {
+        const int S = 256;
+        const float t = 0.03f, d = t * 0.7f;
+        var offs = new[] { new Vector2(t, 0), new Vector2(-t, 0), new Vector2(0, t), new Vector2(0, -t), new Vector2(d, d), new Vector2(-d, d), new Vector2(d, -d), new Vector2(-d, -d) };
+        var tex = new Texture2D(S, S, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[S * S];
+        for (int y = 0; y < S; y++)
+            for (int x = 0; x < S; x++)
+            {
+                Color sum = Color.clear;
+                for (int sy = 0; sy < 2; sy++)
+                    for (int sx = 0; sx < 2; sx++)
+                    {
+                        float u = (x + (sx + 0.5f) / 2) / S * 2 - 1, v = (y + (sy + 0.5f) / 2) / S * 2 - 1;
+                        if (!inside(u, v)) continue;
+                        Color c = fill;
+                        foreach (var o in offs) if (!inside(u + o.x, v + o.y)) { c = rim; break; }
+                        if (c == fill && detail(u, v)) c = det;
+                        sum += c;
+                    }
+                px[y * S + x] = sum.a > 0 ? new Color(sum.r / sum.a, sum.g / sum.a, sum.b / sum.a, sum.a / 4) : Color.clear;
+            }
+        tex.SetPixels(px);
+        tex.Apply();
+        return Sprite.Create(tex, new UnityEngine.Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 100);
     }
 
     // ドットのハート（企画書のロゴのような、左が白・右が黒のハート）
