@@ -30,7 +30,9 @@ public class HeartGame : MonoBehaviour
     Font font;
     Transform canvas;
     GameObject screen; // 今の画面。画面を切り替えるときに丸ごと消す
-    Sprite sqSprite, circleSprite, heartSprite, lifeSprite, dotSprite, flipSprite, blobSprite, megaSprite, starSprite, frameSprite, checkerSprite;
+    Sprite sqSprite, circleSprite, heartSprite, lifeSprite, dotSprite, flipSprite, blobSprite, megaSprite, starSprite, frameSprite, concreteSprite, pixelHeartSprite, crackSprite, ecgSprite;
+    RawImage noiseImg; // 古いモニターのざらつき
+    float shake;       // 被弾したときの画面のゆれ
     readonly Dictionary<string, Sprite> images = new Dictionary<string, Sprite>();
     Dictionary<string, List<StoryLine>> story;
     AudioSource sfx, bgm;
@@ -79,6 +81,7 @@ public class HeartGame : MonoBehaviour
         canvas = cgo.transform;
 
         MakeSprites();
+        MakeCrtOverlay();
         MakeSounds();
         var st = Resources.Load<TextAsset>("Story");
         story = Story.Parse(st != null ? st.text : "");
@@ -97,6 +100,7 @@ public class HeartGame : MonoBehaviour
         UpdateMenu();
         // 画面を切り替えたフレームでは、新しい画面に同じキー入力を渡さない
         if (Time.frameCount != screenFrame) update?.Invoke();
+        UpdateCrt();
     }
 
     // 画面が出てすぐの決定キーは無視する（前の画面で連打していたキーで勝手に進まないように）
@@ -270,7 +274,7 @@ public class HeartGame : MonoBehaviour
 
     void Background(Transform parent, string imageKey = null)
     {
-        var bg = Img(parent, Vector2.zero, new Vector2(1920, 1080), Color.white, checkerSprite, "Background");
+        var bg = Img(parent, Vector2.zero, new Vector2(1920, 1080), Color.white, concreteSprite, "Background");
         var sp = imageKey != null ? LoadImage(imageKey) : null;
         if (sp != null) { bg.sprite = sp; bg.preserveAspect = false; }
         var rt = bg.rectTransform;
@@ -296,15 +300,24 @@ public class HeartGame : MonoBehaviour
         NewScreen(Mode.Title);
         var root = screen.transform;
         Background(root, "title");
-        Img(root, new Vector2(0, 200), new Vector2(240, 240), Color.white, heartSprite);
-        Txt(root, new Vector2(-400, 200), new Vector2(500, 200), "モノクロ", 120, White, TextAnchor.MiddleRight).fontStyle = FontStyle.Bold;
-        Txt(root, new Vector2(400, 200), new Vector2(500, 200), "ハート", 120, White, TextAnchor.MiddleLeft).fontStyle = FontStyle.Bold;
-        Txt(root, new Vector2(0, 40), new Vector2(1200, 60), "— MONOCHRO HEART —", 40, Gray);
+        // ロゴ（企画書の表紙のように、ドット文字とドットのハート）
+        var logoL = Txt(root, new Vector2(-365, 400), new Vector2(560, 160), "モノクロ", 128, White, TextAnchor.MiddleRight);
+        Outlined(logoL, Black, 6);
+        Img(root, new Vector2(0, 404), new Vector2(150, 128), Color.white, pixelHeartSprite, "LogoHeart");
+        var logoR = Txt(root, new Vector2(365, 400), new Vector2(500, 160), "ハート", 128, White, TextAnchor.MiddleLeft);
+        Outlined(logoR, Black, 6);
+        Img(root, new Vector2(-440, 300), new Vector2(280, 52), White, ecgSprite, "Ecg");
+        Txt(root, new Vector2(0, 300), new Vector2(560, 60), "MONOCHRO HEART", 42, White);
+        Img(root, new Vector2(440, 300), new Vector2(280, 52), White, ecgSprite, "Ecg").rectTransform.localScale = new Vector3(-1, 1, 1);
+        // 真ん中のテレビ
+        var tvScreen = Tv(root, new Vector2(0, 0), new Vector2(640, 370), true);
+        var tvHeart = Img(tvScreen, Vector2.zero, new Vector2(240, 204), Color.white, pixelHeartSprite, "TvHeart");
+        update = () => tvHeart.rectTransform.localScale = Vector3.one * (1 + 0.04f * Mathf.Max(0, Mathf.Sin(Time.time * 6)));
 
-        Btn(root, new Vector2(0, -130), new Vector2(460, 80), "はじめる", ShowSelect);
+        Btn(root, new Vector2(0, -255), new Vector2(420, 72), "はじめる", ShowSelect);
         confirmErase = false;
         Button erase = null;
-        erase = Btn(root, new Vector2(0, -230), new Vector2(460, 80), "データを消す", () =>
+        erase = Btn(root, new Vector2(0, -340), new Vector2(420, 72), "データを消す", () =>
         {
             var label = erase.GetComponentInChildren<Text>();
             if (!confirmErase) { confirmErase = true; label.text = "本当に消す？（もう一度押す）"; return; }
@@ -314,14 +327,14 @@ public class HeartGame : MonoBehaviour
             confirmErase = false;
             label.text = "消しました";
         }, 30);
-        Btn(root, new Vector2(0, -330), new Vector2(460, 80), "おわる", () =>
+        Btn(root, new Vector2(0, -425), new Vector2(420, 72), "おわる", () =>
         {
             Application.Quit();
 #if UNITY_EDITOR
             UnityEditor.EditorApplication.isPlaying = false;
 #endif
         });
-        Txt(root, new Vector2(0, -470), new Vector2(1600, 50), "矢印キーで選んで Sキー／Enter で決定（マウスでも選べます）", 26, Gray);
+        Txt(root, new Vector2(0, -505), new Vector2(1600, 40), "矢印キーで選んで Sキー／Enter で決定（マウスでも選べます）", 26, Gray);
     }
 
     // =====================================================================
@@ -349,7 +362,8 @@ public class HeartGame : MonoBehaviour
         NewScreen(Mode.Select);
         var root = screen.transform;
         Background(root);
-        Txt(root, new Vector2(0, 450), new Vector2(1200, 90), "悩みの種", 64, White).fontStyle = FontStyle.Bold;
+        Img(root, new Vector2(-170, 452), new Vector2(70, 60), Color.white, pixelHeartSprite, "Icon");
+        Txt(root, new Vector2(30, 450), new Vector2(400, 90), "悩みの種", 64, White);
         Txt(root, new Vector2(0, 375), new Vector2(1200, 50), $"心の余裕　★ {TotalStars()} / {Stages.Count * 3}", 34, Gray);
 
         int select = 0;
@@ -390,7 +404,7 @@ public class HeartGame : MonoBehaviour
 
         NewScreen(Mode.Novel);
         var root = screen.transform;
-        var bg = Img(root, Vector2.zero, new Vector2(1920, 1080), new Color(0.2f, 0.2f, 0.2f), null, "NovelBg");
+        var bg = Img(root, Vector2.zero, new Vector2(1920, 1080), Color.white, concreteSprite, "NovelBg");
         bg.rectTransform.anchorMin = Vector2.zero; bg.rectTransform.anchorMax = Vector2.one;
         bg.rectTransform.offsetMin = bg.rectTransform.offsetMax = Vector2.zero;
         var place = Txt(root, new Vector2(-660, 470), new Vector2(560, 60), "", 32, White, TextAnchor.MiddleLeft);
@@ -427,7 +441,6 @@ public class HeartGame : MonoBehaviour
         var nameText = Txt(nameBg.transform, Vector2.zero, new Vector2(320, 64), "", 34, Black);
         var body = Txt(box.transform, new Vector2(0, -10), new Vector2(1540, 240), "", 38, White, TextAnchor.UpperLeft);
         var card = Txt(root, new Vector2(0, 40), new Vector2(1800, 300), "", 96, White);
-        card.fontStyle = FontStyle.Bold;
         Txt(root, new Vector2(560, -500), new Vector2(760, 40), "Sキー／Enter／クリック: 次へ　　Esc: スキップ", 24, Gray, TextAnchor.MiddleRight);
 
         int index = -1;
@@ -448,8 +461,8 @@ public class HeartGame : MonoBehaviour
                 {
                     place.text = l.Text.Length > 0 ? "― " + l.Text + " ―" : "";
                     var sp = LoadImage("bg_" + l.Text);
-                    bg.sprite = sp != null ? sp : sqSprite;
-                    bg.color = sp != null ? Color.white : l.Text.Contains("心") ? new Color(0.06f, 0.06f, 0.06f) : new Color(0.22f, 0.22f, 0.22f);
+                    bg.sprite = sp != null ? sp : concreteSprite;
+                    bg.color = sp != null || !l.Text.Contains("心") ? Color.white : new Color(0.4f, 0.4f, 0.4f);
                 }
                 else if (l.Command == "本来の姿")
                 {
@@ -558,7 +571,7 @@ public class HeartGame : MonoBehaviour
                 if (def.Islands && k >= 0)
                 {
                     var cn = Puzzle.Cannons[k];
-                    string arrow = cn.dc > 0 ? "▶" : cn.dc < 0 ? "◀" : cn.dr > 0 ? "▼" : "▲";
+                    string arrow = cn.dc > 0 ? "→" : cn.dc < 0 ? "←" : cn.dr > 0 ? "↓" : "↑";
                     var mark = Txt(img.transform, new Vector2(cn.dc * unit * 0.3f, -cn.dr * unit * 0.3f), Vector2.one * unit, arrow, (int)(unit * 0.4f), Gray);
                     Outlined(mark, Black, 1);
                     cannonMarks[r + 1, c + 1] = mark;
@@ -576,23 +589,22 @@ public class HeartGame : MonoBehaviour
         heartImg.preserveAspect = true;
 
         // ---- 上のテレビ ----
-        var tv = Img(root, new Vector2(0, 440), new Vector2(1180, 190), new Color(0.13f, 0.13f, 0.13f), null, "TV");
-        Outlined(tv, Gray, 4);
-        tvFlash = Img(tv.transform, Vector2.zero, new Vector2(1180, 190), new Color(1, 1, 1, 0), null, "Flash");
-        Txt(tv.transform, new Vector2(-490, 30), new Vector2(180, 40), "STAGE", 28, Gray);
-        Txt(tv.transform, new Vector2(-490, -25), new Vector2(180, 80), n.ToString("00"), 64, White).fontStyle = FontStyle.Bold;
-        Txt(tv.transform, new Vector2(-330, 65), new Vector2(140, 36), "Target", 26, Gray);
-        targetRoot = Rect(tv.transform, "Target", new Vector2(-250, -10), new Vector2(160, 160));
+        var tv = Tv(root, new Vector2(0, 438), new Vector2(1320, 200), false);
+        tvFlash = Img(tv, Vector2.zero, tv.sizeDelta, new Color(1, 1, 1, 0), null, "Flash");
+        Txt(tv, new Vector2(-470, 30), new Vector2(180, 40), "STAGE", 28, Gray);
+        Txt(tv, new Vector2(-470, -25), new Vector2(180, 80), n.ToString("00"), 72, White);
+        Txt(tv, new Vector2(-330, 65), new Vector2(140, 36), "Target", 26, Gray);
+        targetRoot = Rect(tv, "Target", new Vector2(-250, -10), new Vector2(160, 160));
         targetImgs = new Image[8, 8];
         for (int r = 0; r < 8; r++)
             for (int c = 0; c < 8; c++)
                 targetImgs[r, c] = Img(targetRoot, Vector2.zero, Vector2.one * 10, White, null, "T");
-        Txt(tv.transform, new Vector2(-30, 55), new Vector2(160, 36), "LIFE", 26, Gray);
+        Txt(tv, new Vector2(-30, 55), new Vector2(160, 36), "LIFE", 26, Gray);
         for (int i = 0; i < Stages.MaxLife; i++)
-            lifeImgs.Add(Img(tv.transform, new Vector2(-70 + i * 50, 10), new Vector2(44, 44), White, lifeSprite, "Life"));
-        quotaText = Txt(tv.transform, new Vector2(10, -55), new Vector2(380, 40), "", 26, White);
-        var faceBg = Img(tv.transform, new Vector2(430, 0), new Vector2(260, 160), new Color(0.75f, 0.75f, 0.75f), null, "Face");
-        faceText = Txt(faceBg.transform, Vector2.zero, new Vector2(260, 160), "", 48, Black);
+            lifeImgs.Add(Img(tv, new Vector2(-70 + i * 52, 10), new Vector2(46, 40), White, lifeSprite, "Life"));
+        quotaText = Txt(tv, new Vector2(10, -55), new Vector2(380, 40), "", 26, White);
+        var faceBg = Img(tv, new Vector2(400, 0), new Vector2(240, 150), new Color(0.75f, 0.75f, 0.75f), null, "Face");
+        faceText = Txt(faceBg.transform, Vector2.zero, new Vector2(240, 150), "", 48, Black);
 
         // ---- スコアと時間 ----
         var sbox = Img(root, new Vector2(-760, -420), new Vector2(260, 150), Panel, null, "Score");
@@ -605,12 +617,11 @@ public class HeartGame : MonoBehaviour
         timeText = Txt(tbox.transform, new Vector2(0, -20), new Vector2(240, 80), "", 64, White);
 
         // ---- シロとクロ ----
-        CharacterBox(root, new Vector2(-740, 150), "シロ", "shiro", true, def.Hint);
-        kuroText = CharacterBox(root, new Vector2(740, 150), "クロ", "kuro", false, "テキトーでいいって。どうせ誰も見てないし？");
-        Txt(root, new Vector2(-740, -200), new Vector2(380, 110), "移動: 矢印キー\n塗り替え: Sキー\n一時停止: Esc", 26, Gray);
+        CharacterBox(root, new Vector2(-760, 120), "シロ", "shiro", true, def.Hint);
+        kuroText = CharacterBox(root, new Vector2(760, 120), "クロ", "kuro", false, "テキトーでいいって。どうせ誰も見てないし？");
+        Txt(root, new Vector2(-760, -210), new Vector2(380, 110), "移動: 矢印キー\n塗り替え: Sキー\n一時停止: Esc", 26, Gray);
 
         popupText = Txt(root, new Vector2(0, -105), new Vector2(1200, 200), "", 110, White);
-        popupText.fontStyle = FontStyle.Bold;
         Outlined(popupText, Black, 4);
 
         countdown = 3.2f; overTimer = 0; popupTimer = 0; kuroTimer = 6; hitFace = 0; matchFace = 0; warned10 = false;
@@ -691,8 +702,8 @@ public class HeartGame : MonoBehaviour
                 case Ev.Bump: Play(seBump, 0.3f); break;
                 case Ev.Launch: Play(seLaunch, 0.7f); break;
                 case Ev.Match: Play(seMatch, 0.8f); Popup("一致！"); matchFace = 1.5f; tvFlash.color = new Color(Pink.r, Pink.g, Pink.b, 0.6f); Kuro(KuroMatch); break;
-                case Ev.Hit: Play(seHit, 0.8f); hitFace = 1f; Kuro(KuroHit); break;
-                case Ev.FlipHit: Play(seFlipHit, 0.8f); Popup("反転攻撃！"); Kuro(KuroFlip); break;
+                case Ev.Hit: Play(seHit, 0.8f); shake = 0.3f; hitFace = 1f; Kuro(KuroHit); break;
+                case Ev.FlipHit: Play(seFlipHit, 0.8f); shake = 0.2f; Popup("反転攻撃！"); Kuro(KuroFlip); break;
                 case Ev.Expand: Play(seLaunch, 0.8f); Popup("盤面拡張！"); Kuro(KuroExpand); break;
                 case Ev.Shrink: Play(seFlipHit, 0.5f); Popup("落ち着いた…"); break;
                 case Ev.Clear: Play(seClear, 0.9f); Popup("TIME UP"); break;
@@ -775,7 +786,6 @@ public class HeartGame : MonoBehaviour
                 if (nw >= wordPool.Count)
                 {
                     var t = Txt(field, Vector2.zero, new Vector2(10, 10), "", 10, Black);
-                    t.fontStyle = FontStyle.Bold;
                     t.horizontalOverflow = HorizontalWrapMode.Overflow;
                     Outlined(t, White, 3);
                     wordPool.Add(t);
@@ -863,7 +873,7 @@ public class HeartGame : MonoBehaviour
         NewScreen(Mode.Result);
         var root = screen.transform;
         Background(root);
-        Txt(root, new Vector2(0, 330), new Vector2(1400, 140), stars > 0 ? "STAGE CLEAR" : "GAME OVER", 110, White).fontStyle = FontStyle.Bold;
+        Txt(root, new Vector2(0, 330), new Vector2(1400, 140), stars > 0 ? "STAGE CLEAR" : "GAME OVER", 110, White);
         Txt(root, new Vector2(0, 230), new Vector2(1400, 60), $"{n}. {def.Title}" + (stars > 0 ? "" : $"　—　{pz.FailReason}"), 38, Gray);
         for (int i = 0; i < 3; i++)
             Img(root, new Vector2(-180 + i * 180, 90), new Vector2(150, 150), i < stars ? White : new Color(0.25f, 0.25f, 0.25f), starSprite, "Star");
@@ -901,16 +911,127 @@ public class HeartGame : MonoBehaviour
         {
             NewScreen(Mode.Result);
             var root = screen.transform;
-            var bg = Img(root, Vector2.zero, new Vector2(1920, 1080), Color.white, LoadImage(Stages.EndingKeys[e]) ?? checkerSprite, "EndingBg");
+            var bg = Img(root, Vector2.zero, new Vector2(1920, 1080), Color.white, LoadImage(Stages.EndingKeys[e]) ?? concreteSprite, "EndingBg");
             bg.rectTransform.anchorMin = Vector2.zero; bg.rectTransform.anchorMax = Vector2.one;
             bg.rectTransform.offsetMin = bg.rectTransform.offsetMax = Vector2.zero;
             var title = Txt(root, new Vector2(0, 120), new Vector2(1600, 160), Stages.EndingNames[e], 120, White);
-            title.fontStyle = FontStyle.Bold;
             Outlined(title, Black, 4);
             Txt(root, new Vector2(0, -20), new Vector2(1600, 60), $"心の余裕　★ {total} / {Stages.Count * 3}", 40, White);
             Txt(root, new Vector2(0, -90), new Vector2(1600, 60), "Thank you for playing", 34, Gray);
             Btn(root, new Vector2(0, -300), new Vector2(460, 80), "タイトルへ", ShowTitle);
         });
+    }
+
+    // =====================================================================
+    // 古いテレビ（企画書の上部テレビ UI・表紙のテレビ）。画面の部分を返す
+    // =====================================================================
+    RectTransform Tv(Transform parent, Vector2 pos, Vector2 size, bool antenna)
+    {
+        if (antenna)
+            for (int k = -1; k <= 1; k += 2)
+            {
+                var a = Img(parent, pos + new Vector2(k * 80, size.y / 2 + 32), new Vector2(8, 90), Gray, null, "Antenna");
+                a.rectTransform.localRotation = Quaternion.Euler(0, 0, -k * 30);
+            }
+        var frame = Img(parent, pos, size, new Color(0.55f, 0.55f, 0.55f), concreteSprite, "TvFrame");
+        Outlined(frame, Black, 5);
+        var f = frame.transform;
+        float side = 90;
+        // つまみとスピーカーの穴
+        for (int k = -1; k <= 1; k += 2)
+        {
+            float x = k * (size.x / 2 - side / 2);
+            var knob = Img(f, new Vector2(x, size.y * 0.18f), new Vector2(54, 54), new Color(0.3f, 0.3f, 0.3f), circleSprite, "Knob");
+            Outlined(knob, Black, 3);
+            var line = Img(knob.transform, Vector2.zero, new Vector2(6, 44), new Color(0.75f, 0.75f, 0.75f), null, "KnobLine");
+            line.rectTransform.localRotation = Quaternion.Euler(0, 0, k * 40);
+            for (int j = 0; j < 3; j++)
+                Img(f, new Vector2(x, -size.y * 0.12f - j * 14), new Vector2(46, 4), new Color(0.08f, 0.08f, 0.08f), null, "Grille");
+        }
+        // ひび
+        Img(f, new Vector2(-size.x / 2 + 60, size.y / 2 - 50), new Vector2(120, 120), new Color(0, 0, 0, 0.7f), crackSprite, "Crack");
+        var crack2 = Img(f, new Vector2(size.x / 2 - 50, -size.y / 2 + 40), new Vector2(100, 100), new Color(0, 0, 0, 0.6f), crackSprite, "Crack");
+        crack2.rectTransform.localRotation = Quaternion.Euler(0, 0, 180);
+        // 画面
+        var scr = Img(f, Vector2.zero, new Vector2(size.x - side * 2, size.y - 28), new Color(0.07f, 0.07f, 0.07f), null, "TvScreen");
+        Outlined(scr, new Color(0.3f, 0.3f, 0.3f), 3);
+        return scr.rectTransform;
+    }
+
+    void MakeCrtOverlay()
+    {
+        var go = new GameObject("CRT");
+        var cv = go.AddComponent<Canvas>();
+        cv.renderMode = RenderMode.ScreenSpaceOverlay;
+        cv.sortingOrder = 100;
+        var scaler = go.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        // 走査線（4ピクセルごとに暗い線）
+        var sl = new Texture2D(1, 4) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
+        sl.SetPixels(new[] { Color.clear, Color.clear, new Color(0, 0, 0, 0.22f), new Color(0, 0, 0, 0.22f) });
+        sl.Apply();
+        FullScreenRaw(go.transform, sl, new UnityEngine.Rect(0, 0, 1, 270), Color.white);
+
+        // ざらつき（毎フレーム位置をずらす）
+        var nt = new Texture2D(256, 256) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
+        var rnd = new System.Random(7);
+        var np = new Color[256 * 256];
+        for (int i = 0; i < np.Length; i++) { float g = (float)rnd.NextDouble(); np[i] = new Color(g, g, g, 1); }
+        nt.SetPixels(np); nt.Apply();
+        noiseImg = FullScreenRaw(go.transform, nt, new UnityEngine.Rect(0, 0, 1920f / 512, 1080f / 512), new Color(1, 1, 1, 0.05f));
+
+        // 四すみを暗く
+        var vt = new Texture2D(128, 128) { wrapMode = TextureWrapMode.Clamp };
+        var vp = new Color[128 * 128];
+        for (int y = 0; y < 128; y++)
+            for (int x = 0; x < 128; x++)
+            {
+                float dx = (x - 63.5f) / 63.5f, dy = (y - 63.5f) / 63.5f;
+                float d = Mathf.Sqrt(dx * dx + dy * dy) / 1.414f;
+                vp[y * 128 + x] = new Color(0, 0, 0, Mathf.SmoothStep(0, 0.65f, (d - 0.45f) / 0.55f));
+            }
+        vt.SetPixels(vp); vt.Apply();
+        FullScreenRaw(go.transform, vt, new UnityEngine.Rect(0, 0, 1, 1), Color.white);
+    }
+
+    RawImage FullScreenRaw(Transform parent, Texture2D tex, UnityEngine.Rect uv, Color color)
+    {
+        var go = new GameObject("Overlay", typeof(RectTransform));
+        var rt = (RectTransform)go.transform;
+        rt.SetParent(parent, false);
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = rt.offsetMax = Vector2.zero;
+        var ri = go.AddComponent<RawImage>();
+        ri.texture = tex;
+        ri.uvRect = uv;
+        ri.color = color;
+        ri.raycastTarget = false;
+        return ri;
+    }
+
+    void UpdateCrt()
+    {
+        if (noiseImg != null)
+        {
+            var r = noiseImg.uvRect;
+            noiseImg.uvRect = new UnityEngine.Rect(UnityEngine.Random.value, UnityEngine.Random.value, r.width, r.height);
+            // ときどき一瞬だけざらつきが強くなる
+            noiseImg.color = new Color(1, 1, 1, UnityEngine.Random.value < 0.015f ? 0.14f : 0.05f);
+        }
+        if (screen != null)
+        {
+            var rt = (RectTransform)screen.transform;
+            if (shake > 0)
+            {
+                shake -= Time.deltaTime;
+                float s = Mathf.Max(0, shake) / 0.3f * 16;
+                rt.anchoredPosition = new Vector2(UnityEngine.Random.Range(-s, s), UnityEngine.Random.Range(-s, s));
+            }
+            else rt.anchoredPosition = Vector2.zero;
+        }
     }
 
     // =====================================================================
@@ -936,7 +1057,6 @@ public class HeartGame : MonoBehaviour
             return a * a * a - x * x * y * y * y <= 0;
         };
         heartSprite = Shape(192, (u, v) => !InHeart(u, v, 1f) ? clear : !InHeart(u, v, 0.86f) ? g : u < 0 ? w : b);
-        lifeSprite = Shape(96, (u, v) => InHeart(u, v, 1f) ? w : clear);
 
         // 弾: 黒い玉に白いふち（白いマスの上でも黒いマスの上でも見える）
         dotSprite = Shape(64, (u, v) => { float r = u * u + v * v; return r > 0.96f ? clear : r > 0.45f ? w : b; });
@@ -974,14 +1094,167 @@ public class HeartGame : MonoBehaviour
 
         frameSprite = Shape(64, (u, v) => Mathf.Max(Mathf.Abs(u), Mathf.Abs(v)) > 0.8f ? w : clear);
 
-        // 背景の市松模様
-        var ct = new Texture2D(16, 9) { filterMode = FilterMode.Point };
-        var cp = new Color[16 * 9];
-        for (int y = 0; y < 9; y++)
-            for (int x = 0; x < 16; x++)
-                cp[y * 16 + x] = (x + y) % 2 == 0 ? new Color(0.13f, 0.13f, 0.13f) : new Color(0.17f, 0.17f, 0.17f);
-        ct.SetPixels(cp); ct.Apply();
-        checkerSprite = Sprite.Create(ct, new UnityEngine.Rect(0, 0, 16, 9), new Vector2(0.5f, 0.5f), 100);
+        concreteSprite = MakeConcrete();
+        pixelHeartSprite = PixelHeart(true);
+        lifeSprite = PixelHeart(false);
+        crackSprite = MakeCrack();
+        ecgSprite = MakeEcg();
+    }
+
+    // ドットのハート（企画書のロゴのような、左が白・右が黒のハート）
+    static readonly string[] PixelHeartRows =
+    {
+        "..XXX...XXX..",
+        ".XXXXX.XXXXX.",
+        "XXXXXXXXXXXXX",
+        "XXXXXXXXXXXXX",
+        "XXXXXXXXXXXXX",
+        ".XXXXXXXXXXX.",
+        "..XXXXXXXXX..",
+        "...XXXXXXX...",
+        "....XXXXX....",
+        ".....XXX.....",
+        "......X......",
+    };
+
+    static Sprite PixelHeart(bool twoTone)
+    {
+        int w = 15, h = 13; // まわりに1ドットのふち
+        var tex = new Texture2D(w, h) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[w * h];
+        Func<int, int, bool> on = (x, y) =>
+        {
+            int r = h - 2 - y, c = x - 1; // テクスチャは下から上
+            return r >= 0 && r < 11 && c >= 0 && c < 13 && PixelHeartRows[r][c] == 'X';
+        };
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                Color col = Color.clear;
+                if (on(x, y)) col = !twoTone || x - 1 <= 6 ? new Color(0.95f, 0.95f, 0.95f) : new Color(0.05f, 0.05f, 0.05f);
+                else if (twoTone && (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1))) col = new Color(0.6f, 0.6f, 0.6f);
+                px[y * w + x] = col;
+            }
+        tex.SetPixels(px); tex.Apply();
+        return Sprite.Create(tex, new UnityEngine.Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100);
+    }
+
+    // ひび割れたコンクリートの市松模様（企画書の背景）。ひびは細かく割れた形（ボロノイ）
+    static Sprite MakeConcrete()
+    {
+        const int W = 480, H = 270, Tile = 60, Cell = 13;
+        var tex = new Texture2D(W, H) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[W * H];
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                int tx = x / Tile, ty = y / Tile;
+                float v = ((tx + ty) % 2 == 0 ? 0.11f : 0.3f) + (Hash(tx + 50, ty + 50) - 0.5f) * 0.06f;
+                v += (Fbm(x / 40f, y / 40f) - 0.5f) * 0.12f + (Fbm(x / 3f + 100, y / 3f) - 0.5f) * 0.08f;
+
+                // いちばん近い点・2番目に近い点までの距離の差が小さい所がひび
+                int cx = x / Cell, cy = y / Cell, bx = 0, by = 0;
+                float f1 = 99, f2 = 99;
+                for (int oy = -1; oy <= 1; oy++)
+                    for (int ox = -1; ox <= 1; ox++)
+                    {
+                        int gx = cx + ox, gy = cy + oy;
+                        float ptx = (gx + Hash(gx, gy + 999)) * Cell, pty = (gy + Hash(gx + 777, gy)) * Cell;
+                        float d = Mathf.Sqrt((x + 0.5f - ptx) * (x + 0.5f - ptx) + (y + 0.5f - pty) * (y + 0.5f - pty));
+                        if (d < f1) { f2 = f1; f1 = d; bx = gx; by = gy; }
+                        else if (d < f2) f2 = d;
+                    }
+                v += (Hash(bx + 3, by + 9) - 0.5f) * 0.05f;
+                float amt = Mathf.Clamp01((Fbm(x / 60f + 40, y / 60f) - 0.35f) * 3); // ひびの濃さは場所でちがう
+                float e = f2 - f1;
+                if (e < 1.3f) v *= 1 - 0.75f * amt;
+                else if (e < 2.4f) v += 0.04f * amt;
+
+                float dx = (x - W / 2f) / (W / 2f), dy = (y - H / 2f) / (H / 2f);
+                v *= 1 - 0.35f * (dx * dx + dy * dy) / 2;
+                px[y * W + x] = new Color(v, v, v, 1);
+            }
+        tex.SetPixels(px); tex.Apply();
+        return Sprite.Create(tex, new UnityEngine.Rect(0, 0, W, H), new Vector2(0.5f, 0.5f), 100);
+    }
+
+    static void CrackWalk(float[,] mask, System.Random rnd, float x, float y, float ang, int len, int depth)
+    {
+        int w = mask.GetLength(0), h = mask.GetLength(1);
+        for (int i = 0; i < len; i++)
+        {
+            ang += (float)(rnd.NextDouble() - 0.5) * 0.8f;
+            x += Mathf.Cos(ang); y += Mathf.Sin(ang);
+            int ix = (int)x, iy = (int)y;
+            if (ix < 0 || iy < 0 || ix >= w || iy >= h) return;
+            mask[ix, iy] = 1;
+            if (depth > 0 && rnd.NextDouble() < 0.04)
+                CrackWalk(mask, rnd, x, y, ang + (rnd.Next(2) == 0 ? 0.9f : -0.9f), len / 2, depth - 1);
+        }
+    }
+
+    static float Hash(int x, int y)
+    {
+        unchecked
+        {
+            int h = x * 374761393 + y * 668265263;
+            h = (h ^ (h >> 13)) * 1274126177;
+            return ((h ^ (h >> 16)) & 0xffff) / 65535f;
+        }
+    }
+
+    static float ValueNoise(float x, float y)
+    {
+        int ix = Mathf.FloorToInt(x), iy = Mathf.FloorToInt(y);
+        float fx = x - ix, fy = y - iy;
+        fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+        float a = Mathf.Lerp(Hash(ix, iy), Hash(ix + 1, iy), fx);
+        float b = Mathf.Lerp(Hash(ix, iy + 1), Hash(ix + 1, iy + 1), fx);
+        return Mathf.Lerp(a, b, fy);
+    }
+
+    static float Fbm(float x, float y) => ValueNoise(x, y) * 0.5f + ValueNoise(x * 2, y * 2) * 0.3f + ValueNoise(x * 4, y * 4) * 0.2f;
+
+    static Sprite MakeCrack()
+    {
+        const int S = 96;
+        var mask = new float[S, S];
+        var rnd = new System.Random(11);
+        for (int k = 0; k < 4; k++)
+            CrackWalk(mask, rnd, 2, 2 + rnd.Next(10), (float)(rnd.NextDouble() * 0.9), 70, 2);
+        var tex = new Texture2D(S, S) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[S * S];
+        for (int y = 0; y < S; y++)
+            for (int x = 0; x < S; x++)
+                px[(S - 1 - y) * S + x] = mask[x, y] > 0 ? Color.white : Color.clear;
+        tex.SetPixels(px); tex.Apply();
+        return Sprite.Create(tex, new UnityEngine.Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 100);
+    }
+
+    // 心電図の線（タイトルの「—∿— MONOCHRO HEART —∿—」）
+    static Sprite MakeEcg()
+    {
+        const int W = 140, H = 26;
+        var pts = new[] { new Vector2(0, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.56f, 0.1f), new Vector2(0.63f, 0.95f), new Vector2(0.69f, 0.3f), new Vector2(0.73f, 0.5f), new Vector2(1, 0.5f) };
+        var tex = new Texture2D(W, H) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+        var px = new Color[W * H];
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                var p = new Vector2(x + 0.5f, y + 0.5f);
+                float best = 99;
+                for (int i = 0; i + 1 < pts.Length; i++)
+                {
+                    var a = new Vector2(pts[i].x * W, pts[i].y * H);
+                    var b = new Vector2(pts[i + 1].x * W, pts[i + 1].y * H);
+                    var ab = b - a;
+                    float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Vector2.Dot(ab, ab));
+                    best = Mathf.Min(best, Vector2.Distance(p, a + ab * t));
+                }
+                px[y * W + x] = best < 1.1f ? Color.white : Color.clear;
+            }
+        tex.SetPixels(px); tex.Apply();
+        return Sprite.Create(tex, new UnityEngine.Rect(0, 0, W, H), new Vector2(0.5f, 0.5f), 100);
     }
 
     static bool InPoly(Vector2[] p, float x, float y)

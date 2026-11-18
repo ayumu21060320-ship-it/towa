@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: 311ebfe68322c97418b4da208d2cc9f8
+guid: b47395b812354382aca02bb3f4c9b4e3
 TrueTypeFontImporter:
   externalObjects: {}
   serializedVersion: 4
@@ -9,7 +9,7 @@ TrueTypeFontImporter:
   characterPadding: 1
   includeFontData: 1
   fontNames:
-  - Kosugi Maru
+  - DotGothic16
   fallbackFontReferences: []
   customCharacters: 
   fontRenderingMode: 0
